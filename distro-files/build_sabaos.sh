@@ -5,7 +5,8 @@
 # Maskot: Sameko Saba 🐟
 # ============================================================================
 
-set -e  # Exit on error
+set -euo pipefail  # Exit on error and fail on unset vars
+set -o pipefail
 
 # Colors
 RED='\033[0;31m'
@@ -21,7 +22,7 @@ export SABA_VERSION="1.0"
 export LFS=/mnt/saba_os
 export SABA_TGT=$(uname -m)-saba-linux-musl
 export MAKEFLAGS="-j$(nproc)"
-export PATH=/tools/bin:/bin:/usr/bin
+export PATH="${LFS}/tools/bin:/bin:/usr/bin"
 
 # Direktori
 export FISHIX_ROOT="$(cd .. && pwd)"  # Parent directory from  build script
@@ -33,7 +34,7 @@ LOGS_DIR="${BUILD_DIR}/logs"
 
 # Source archive URLs for automatic download
 declare -A SOURCE_URLS=(
-    ["binutils-2.46.tar.xz"]="https://ftp.gnu.org/gnu/binutils/binutils-2.46.tar.xz"
+    ["binutils-2.46.0.tar.xz"]="https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.xz"
     ["musl-1.2.6.tar.gz"]="https://musl.libc.org/releases/musl-1.2.6.tar.gz"
     ["gcc-14.2.0.tar.xz"]="https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"
 )
@@ -132,8 +133,19 @@ phase0_preparation() {
     else
         log_warning "Direktori sumber tidak ditemukan: ${SOURCES_DIR}"
     fi
-    sudo chown -R $USER:$USER "${LFS}/sources"
-    sudo chown -R $USER:$USER "${LFS}"
+
+    # Own only the build directories and source directories, not mounted pseudo-filesystems.
+    sudo chown -R $USER:$USER "${LFS}/sources" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/tools" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/build" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/boot" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/etc" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/bin" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/sbin" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/lib" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/lib64" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/usr" 2>/dev/null || true
+    sudo chown -R $USER:$USER "${LFS}/var" 2>/dev/null || true
 
     log_success "Persiapan selesai!"
 }
@@ -149,16 +161,27 @@ phase1_toolchain() {
     
     # 1. Binutils - Cross
     log_info "[1/4] Membangun Binutils (cross)..."
-    if [ ! -f "${LOGS_DIR}/binutils_cross.done" ]; then
-        if [ ! -d binutils-2.46 ]; then
-            check_archive binutils-2.46.tar.xz
-            tar -xf "${SOURCES_DIR}/binutils-2.46.tar.xz"
+    BINUTILS_AR="${LFS}/tools/bin/${SABA_TGT}-ar"
+    if [ -f "${LOGS_DIR}/binutils_cross.done" ] && [ -x "${BINUTILS_AR}" ]; then
+        log_warning "Binutils cross sudah dibangun, melewati..."
+    else
+        if [ -f "${LOGS_DIR}/binutils_cross.done" ] && [ ! -x "${BINUTILS_AR}" ]; then
+            log_warning "Binutils marker ada tetapi ${BINUTILS_AR} tidak ditemukan. Membangun ulang binutils..."
+            rm -f "${LOGS_DIR}/binutils_cross.done"
+        fi
+        if [ ! -d binutils-2.46.0 ]; then
+            check_archive binutils-2.46.0.tar.xz
+            tar -xf "${SOURCES_DIR}/binutils-2.46.0.tar.xz"
         else
             log_warning "Binutils source already extracted"
         fi
+        if [ ! -d binutils-2.46 ] && [ -d binutils-2.46.0 ]; then
+            ln -s binutils-2.46.0 binutils-2.46
+        fi
+        rm -rf binutils-build
         mkdir -pv binutils-build && cd binutils-build
         ../binutils-2.46/configure \
-            --prefix=/tools \
+            --prefix="${LFS}/tools" \
             --with-sysroot="$LFS" \
             --with-lib-path="${LFS}/tools/lib" \
             --target="$SABA_TGT" \
@@ -172,8 +195,6 @@ phase1_toolchain() {
         touch "${LOGS_DIR}/binutils_cross.done"
         cd ..
         log_success "Binutils cross selesai!"
-    else
-        log_warning "Binutils cross sudah dibangun, melewati..."
     fi
     
     # 2. musl libc headers
@@ -186,7 +207,7 @@ phase1_toolchain() {
             log_warning "musl source already extracted"
         fi
         cd musl-1.2.6
-        ./configure --prefix=/tools --target="$SABA_TGT" 2>&1 | tee "${LOGS_DIR}/musl_headers_configure.log"
+        ./configure --prefix="${LFS}/tools" --target="$SABA_TGT" 2>&1 | tee "${LOGS_DIR}/musl_headers_configure.log"
         make install-headers 2>&1 | tee "${LOGS_DIR}/musl_headers_install.log"
         touch "${LOGS_DIR}/musl_headers.done"
         cd ..
@@ -197,7 +218,14 @@ phase1_toolchain() {
     
     # 3. GCC - Cross Compiler (Static)
     log_info "[3/4] Membangun GCC (cross, static)..."
-    if [ ! -f "${LOGS_DIR}/gcc_cross.done" ]; then
+    GCC_BIN="${LFS}/tools/bin/${SABA_TGT}-gcc"
+    if [ -f "${LOGS_DIR}/gcc_cross.done" ] && [ -x "${GCC_BIN}" ]; then
+        log_warning "GCC cross sudah dibangun, melewati..."
+    else
+        if [ -f "${LOGS_DIR}/gcc_cross.done" ] && [ ! -x "${GCC_BIN}" ]; then
+            log_warning "GCC marker ada tetapi ${GCC_BIN} tidak ditemukan. Membangun ulang GCC..."
+            rm -f "${LOGS_DIR}/gcc_cross.done"
+        fi
         if [ ! -d gcc-14.2.0 ]; then
             check_archive gcc-14.2.0.tar.xz
             tar -xf "${SOURCES_DIR}/gcc-14.2.0.tar.xz"
@@ -207,10 +235,10 @@ phase1_toolchain() {
         cd gcc-14.2.0
         ./contrib/download_prerequisites 2>/dev/null || log_warning "Prerequisites mungkin sudah ada"
         cd ..
-        
+        rm -rf gcc-build
         mkdir -pv gcc-build && cd gcc-build
         ../gcc-14.2.0/configure \
-            --prefix=/tools \
+            --prefix="${LFS}/tools" \
             --target="$SABA_TGT" \
             --with-sysroot="$LFS" \
             --with-newlib \
@@ -237,8 +265,6 @@ phase1_toolchain() {
         touch "${LOGS_DIR}/gcc_cross.done"
         cd ..
         log_success "GCC cross selesai!"
-    else
-        log_warning "GCC cross sudah dibangun, melewati..."
     fi
     
     # 4. musl libc (Cross)
@@ -250,7 +276,7 @@ phase1_toolchain() {
         AR="${SABA_TGT}-ar" \
         RANLIB="${SABA_TGT}-ranlib" \
         ./configure \
-            --prefix=/tools \
+            --prefix="${LFS}/tools" \
             --target="$SABA_TGT" \
             --disable-shared \
             2>&1 | tee "${LOGS_DIR}/musl_configure.log"
@@ -391,29 +417,34 @@ CHROOT_EOF
 phase3_kernel() {
     log_section "FASE 3: MENGIMPOR KERNEL FISHIX"
     
-    # Direktori hasil build Fishix (dari ../ setelah make import-kernel)
-    FISHIX_KERNEL_DIR="${ROOT_DIR}/kernel"
-    FISHIX_BUILD_DIR="${ROOT_DIR}/build"
-    
+    FISHIX_KERNEL_DIR="${FISHIX_ROOT}/kernel"
+    FISHIX_BUILD_DIR="${FISHIX_KERNEL_DIR}/build"
+    KERNEL_BOOT_NAME="fishix"
+    KERNEL_SRC=""
+
     log_info "Mengecek hasil build Fishix..."
-    
-    if [ ! -d "${FISHIX_KERNEL_DIR}" ]; then
-        log_error "Kernel Fishix tidak ditemukan di ${FISHIX_KERNEL_DIR}!"
-        log_error "Jalankan 'make import-kernel' terlebih dahulu!"
+
+    if [ -x "${FISHIX_BUILD_DIR}/fishix" ]; then
+        KERNEL_SRC="${FISHIX_BUILD_DIR}/fishix"
+        KERNEL_BOOT_NAME="fishix"
+    elif [ -f "${FISHIX_KERNEL_DIR}/arch/x86/boot/bzImage" ]; then
+        KERNEL_SRC="${FISHIX_KERNEL_DIR}/arch/x86/boot/bzImage"
+        KERNEL_BOOT_NAME="vmlinuz-Fishix-1.0.5"
+    else
+        if [ ! -d "${FISHIX_KERNEL_DIR}" ]; then
+            log_error "Kernel Fishix tidak ditemukan di ${FISHIX_KERNEL_DIR}!"
+            log_error "Jalankan 'make import-kernel' terlebih dahulu!"
+        else
+            log_error "Kernel Fishix belum dibuild!"
+            log_error "Build kernel Fishix terlebih dahulu di ${FISHIX_KERNEL_DIR}"
+        fi
         exit 1
     fi
-    
-    if [ ! -f "${FISHIX_KERNEL_DIR}/arch/x86/boot/bzImage" ]; then
-        log_error "Kernel image Fishix belum dibuild!"
-        log_error "Build kernel Fishix terlebih dahulu di ${FISHIX_KERNEL_DIR}"
-        exit 1
-    fi
-    
+
     log_info "Menyalin kernel Fishix ke sistem Saba OS..."
-    
+
     # Copy kernel image
-    cp -v "${FISHIX_KERNEL_DIR}/arch/x86/boot/bzImage" \
-          "${LFS}/boot/vmlinuz-Fishix-1.0.5"
+    cp -v "${KERNEL_SRC}" "${LFS}/boot/${KERNEL_BOOT_NAME}"
     
     # Copy System.map jika ada
     if [ -f "${FISHIX_KERNEL_DIR}/System.map" ]; then
@@ -442,7 +473,7 @@ phase3_kernel() {
     fi
     
     log_success "Kernel Fishix berhasil diimpor ke Saba OS!"
-    log_info "Kernel: ${LFS}/boot/vmlinuz-Fishix-1.0.5"
+    log_info "Kernel: ${LFS}/boot/${KERNEL_BOOT_NAME}"
 }
 
 # ============================================================================
@@ -882,13 +913,13 @@ if [ -d /sys/firmware/efi ]; then
     
     # EFISTUB
     mkdir -p /boot/efi/EFI/SabaOS
-    cp /boot/vmlinuz-Fishix-1.0.5 /boot/efi/EFI/SabaOS/
+    cp /boot/fishix /boot/efi/EFI/SabaOS/
     cp /boot/initramfs-Fishix-1.0.5.img /boot/efi/EFI/SabaOS/
     
     # Create UEFI boot entry
     efibootmgr --create --disk /dev/sda --part 1 \
         --label "Saba OS 🐟" \
-        --loader "\\EFI\\SabaOS\\vmlinuz-Fishix-1.0.5" \
+        --loader "\\EFI\\SabaOS\\fishix" \
         --unicode "initrd=\\EFI\\SabaOS\\initramfs-Fishix-1.0.5.img root=/dev/sda2 rw quiet" \
         --verbose
 else
@@ -903,12 +934,12 @@ set timeout=5
 set default=0
 
 menuentry "Saba OS 🐟 (Fishix 1.0.5)" {
-    linux /boot/vmlinuz-Fishix-1.0.5 root=/dev/sda2 rw quiet
+    linux /boot/fishix root=/dev/sda2 rw quiet
     initrd /boot/initramfs-Fishix-1.0.5.img
 }
 
 menuentry "Saba OS (Recovery)" {
-    linux /boot/vmlinuz-Fishix-1.0.5 root=/dev/sda2 rw single
+    linux /boot/fishix root=/dev/sda2 rw single
     initrd /boot/initramfs-Fishix-1.0.5.img
 }
 GRUBEOF

@@ -75,7 +75,7 @@ Atau download manual dari URL berikut:
 | Paket | Versi | URL | Size |
 |-------|-------|-----|------|
 | musl libc | 1.2.6 | https://musl.libc.org/releases/musl-1.2.6.tar.gz | 1.0 MB |
-| GNU Binutils | 2.46 | https://ftp.gnu.org/gnu/binutils/binutils-2.46.tar.xz | 25 MB |
+| GNU Binutils | 2.46 | https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.xz | 25 MB |
 | GCC | 14.2.0 | https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz | 85 MB |
 
 #### Core Utilities

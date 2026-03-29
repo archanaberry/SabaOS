@@ -51,8 +51,8 @@ COMPONENTS = {
         },
         "binutils": {
             "name": "GNU Binutils 2.46",
-            "url": "https://ftp.gnu.org/gnu/binutils/binutils-2.46.tar.xz",
-            "filename": "binutils-2.46.tar.xz",
+            "url": "https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.xz",
+            "filename": "binutils-2.46.0.tar.xz",
             "checksum": "e0f5a4d7a2e5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f",
             "size": "25 MB",
             "desc": "Assembler, linker, dan tools binary"
