@@ -1,45 +1,169 @@
-# Fishix
+<div align="center">
 
-A hobby kernel for x86_64 with Linux binary compatibility, written from scratch in C++
+# 🌊 Saba OS — Sameko Saba 🐟🐈
+### by Fishix (Wayland)
 
-Notable features:
-- Capable of running many Linux programs such as KDE Plasma (X11), GIMP, Minecraft and Factorio
-- Runs on real hardware
-- USB (xHCI) and PS/2 keyboard/mouse
-- Networking (currently UDP-only) with virtio-net
+**An independent experimental LINUX-like operating system**
 
-SMP is not yet supported, only one core will be used. Only the Limine bootloader is supported.
+![status](https://img.shields.io/badge/status-experimental-orange)
+![kernel](https://img.shields.io/badge/kernel-Fishix-blue)
+![display](https://img.shields.io/badge/display-Wayland-purple)
+![architecture](https://img.shields.io/badge/arch-x86__64-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
 
-The long term goal of the project is for it to be somewhat usable in place of the Linux kernel on a basic desktop system.
+</div>
 
-![Screenshot](/screenshot.png?raw=true "Screenshot")
-*Progress screenshot from 6 March 2026*
+---
 
-## Building and running
+## ✨ About
 
-The kernel itself uses Meson and you can build it as you would with any other Meson project.
-```sh
-cd kernel
-meson setup --wipe build
-meson compile --jobs $(nproc) -C build
+**Saba OS — Sameko Saba** is an **independent operating system** built on the **Fishix kernel**, designed to explore modern desktop architecture with a Wayland-first approach.
+
+Saba OS is **NOT a Linux distribution** and **NOT based on Void Linux or any existing distro**.
+
+The system is developed as its own ecosystem, including:
+
+- custom system layout
+- independent userspace direction
+- future native package manager (**sabapm**)
+- experimental UNIX-like environment
+
+External systems may be used temporarily for bootstrapping during development only.
+
+---
+
+## 🧱 System Overview
+
+| Component | Technology |
+|-----------|------------|
+| Kernel | Fishix |
+| OS Type | Independent UNIX-like |
+| Display Protocol | Wayland |
+| Bootloader | Limine |
+| Architecture | x86_64 |
+| Language | C++ / ASM |
+| Graphics | DRM + Framebuffer |
+| Input | USB (xHCI) + PS/2 |
+| Networking | virtio-net (UDP) |
+
+---
+
+## Essential coreutils
+1. fish shell
+2. kitty
+3. runit
+4. weston
+5. wayland
+6. sway
+7. yad
+8. musl
+
+---
+
+## 📂 Repository Structure
+
 ```
 
-Alternatively, you can use the Makefile in the project root which contains convenience commands for building the kernel, building an .iso, downloading Limine and running it in QEMU.
+SabaOS/
+├── kernel/          # Fishix kernel source
+├── distro-files/    # System image builder & root layout
+├── docs/            # Technical documentation
+├── Makefile         # Unified build workflow
+├── dev.fish         # Developer helper tools
+└── qemu-prof.sh     # QEMU execution script
 
-Build kernel: `make -j$(nproc)`
+````
 
-Build an .iso and run in QEMU: `SYSROOT=sysroot ISO=/tmp/fishix.iso make -j$(nproc) run`
+### Key Areas
 
-### Setting up a basic Void Linux sysroot
+- **kernel/** — core operating system kernel
+- **distro-files/** — OS construction tools
+- **docs/wayland/** — Wayland integration research
+- **docs/drm/** — graphics subsystem
+- **docs/dma/** — memory management notes
 
-`XBPS_ARCH=x86_64 xbps-install -S -r sysroot -R "https://repo-default.voidlinux.org/current" base-files bash coreutils runit-void util-linux glibc-locales tzdata which shadow metalog`
+---
 
-Edit `sysroot/etc/default/libc-locales` then run `xbps-reconfigure -r sysroot -f glibc-locales`
+## 🚀 Features (Current)
 
-The provided distro-files have a bootloader option for launching into a graphical environment with KDE, which expects the sysroot to also have the packages `xorg st kde-plasma kde-baseapps plasma5support` installed. You can modify the distro-files to change this.
+- Independent OS architecture
+- Wayland-oriented graphics design
+- DRM graphics subsystem
+- Virtual filesystem (VFS, tmpfs, procfs)
+- ELF userspace execution
+- USB & PS/2 input devices
+- virtio networking
+- Runs on real hardware and QEMU
 
-## License
+> SMP support is not yet implemented (single-core scheduler).
 
-This code is licensed under the [MIT License](LICENSE).
+---
 
-See the [NOTICE.md](NOTICE.md) file for attributions.
+## 🔧 Building
+
+### Build system
+
+```bash
+make -j$(nproc)
+````
+
+### Build ISO & run
+
+```bash
+SYSROOT=sysroot ISO=/tmp/sabaos.iso make run
+```
+
+---
+
+## 🧪 Development Bootstrap (Temporary)
+
+During development, an external userspace may be used **only as a bootstrap environment**.
+
+This does **not** represent the final Saba OS design.
+
+Future releases will introduce:
+
+```
+sabapm — native Saba OS package manager
+```
+
+---
+
+## 🎯 Project Goals
+
+* Create a fully independent desktop OS
+* Develop a Wayland-native environment
+* Replace legacy Linux assumptions
+* Build a clean experimental UNIX platform
+* Introduce native package ecosystem (sabapm)
+
+---
+
+## 📸 Progress
+
+![Screenshot](/screenshot.png?raw=true "Saba OS progress")
+
+---
+
+## 🤝 Contributing
+
+Saba OS is an experimental research project.
+
+Contributions, testing, and architectural discussions are welcome.
+
+---
+
+## 📜 License
+
+MIT License — see [LICENSE](LICENSE)
+
+Attributions listed in [NOTICE.md](NOTICE.md).
+
+---
+
+<div align="center">
+
+**Saba OS — Sameko Saba 🌊**
+Independent system powered by Fishix
+
+</div>
