@@ -24,9 +24,19 @@ export MAKEFLAGS="-j$(nproc)"
 export PATH=/tools/bin:/bin:/usr/bin
 
 # Direktori
+export FISHIX_ROOT="$(cd .. && pwd)"  # Parent directory from  build script
+export KERNEL_DIR="${FISHIX_ROOT}/kernel"
+
 SOURCES_DIR="${HOME}/saba_os_sources"
 BUILD_DIR="${LFS}/build"
 LOGS_DIR="${BUILD_DIR}/logs"
+
+# Source archive URLs for automatic download
+declare -A SOURCE_URLS=(
+    ["binutils-2.46.tar.xz"]="https://ftp.gnu.org/gnu/binutils/binutils-2.46.tar.xz"
+    ["musl-1.2.6.tar.gz"]="https://musl.libc.org/releases/musl-1.2.6.tar.gz"
+    ["gcc-14.2.0.tar.xz"]="https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"
+)
 
 # ============================================================================
 # FUNGSI UTILITAS
@@ -46,6 +56,46 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+download_archive() {
+    local filename="$1"
+    local url="${SOURCE_URLS[$filename]}"
+    local dest="${SOURCES_DIR}/${filename}"
+
+    if [ -f "$dest" ]; then
+        return 0
+    fi
+
+    if [ -z "$url" ]; then
+        log_error "No download URL configured for $filename"
+        exit 1
+    fi
+
+    log_info "Downloading $filename from $url"
+    mkdir -p "${SOURCES_DIR}"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL "$url" -o "$dest"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "$dest" "$url"
+    else
+        log_error "Neither curl nor wget is available for downloading sources"
+        exit 1
+    fi
+
+    if [ ! -f "$dest" ]; then
+        log_error "Download failed for $filename"
+        exit 1
+    fi
+}
+
+check_archive() {
+    local archive_path="${SOURCES_DIR}/$1"
+    if [ ! -f "$archive_path" ]; then
+        log_warning "Source archive not found: $1"
+        download_archive "$1"
+    fi
 }
 
 log_section() {
@@ -77,9 +127,14 @@ phase0_preparation() {
     sudo mkdir -pv "${LFS}/var"
     
     log_info "Menyalin source code..."
-    sudo cp -r "${SOURCES_DIR}"/* "${LFS}/sources/" 2>/dev/null || true
+    if [ -d "${SOURCES_DIR}" ]; then
+        sudo cp -r "${SOURCES_DIR}"/* "${LFS}/sources/" 2>/dev/null || true
+    else
+        log_warning "Direktori sumber tidak ditemukan: ${SOURCES_DIR}"
+    fi
     sudo chown -R $USER:$USER "${LFS}/sources"
-    
+    sudo chown -R $USER:$USER "${LFS}"
+
     log_success "Persiapan selesai!"
 }
 
@@ -95,7 +150,12 @@ phase1_toolchain() {
     # 1. Binutils - Cross
     log_info "[1/4] Membangun Binutils (cross)..."
     if [ ! -f "${LOGS_DIR}/binutils_cross.done" ]; then
-        tar -xf binutils-2.46.tar.xz 2>/dev/null || log_warning "Binutils sudah diekstrak"
+        if [ ! -d binutils-2.46 ]; then
+            check_archive binutils-2.46.tar.xz
+            tar -xf "${SOURCES_DIR}/binutils-2.46.tar.xz"
+        else
+            log_warning "Binutils source already extracted"
+        fi
         mkdir -pv binutils-build && cd binutils-build
         ../binutils-2.46/configure \
             --prefix=/tools \
@@ -119,7 +179,12 @@ phase1_toolchain() {
     # 2. musl libc headers
     log_info "[2/4] Menginstal musl libc headers..."
     if [ ! -f "${LOGS_DIR}/musl_headers.done" ]; then
-        tar -xf musl-1.2.6.tar.gz 2>/dev/null || log_warning "musl sudah diekstrak"
+        if [ ! -d musl-1.2.6 ]; then
+            check_archive musl-1.2.6.tar.gz
+            tar -xf "${SOURCES_DIR}/musl-1.2.6.tar.gz"
+        else
+            log_warning "musl source already extracted"
+        fi
         cd musl-1.2.6
         ./configure --prefix=/tools --target="$SABA_TGT" 2>&1 | tee "${LOGS_DIR}/musl_headers_configure.log"
         make install-headers 2>&1 | tee "${LOGS_DIR}/musl_headers_install.log"
@@ -133,7 +198,12 @@ phase1_toolchain() {
     # 3. GCC - Cross Compiler (Static)
     log_info "[3/4] Membangun GCC (cross, static)..."
     if [ ! -f "${LOGS_DIR}/gcc_cross.done" ]; then
-        tar -xf gcc-14.2.0.tar.xz 2>/dev/null || log_warning "GCC sudah diekstrak"
+        if [ ! -d gcc-14.2.0 ]; then
+            check_archive gcc-14.2.0.tar.xz
+            tar -xf "${SOURCES_DIR}/gcc-14.2.0.tar.xz"
+        else
+            log_warning "GCC source already extracted"
+        fi
         cd gcc-14.2.0
         ./contrib/download_prerequisites 2>/dev/null || log_warning "Prerequisites mungkin sudah ada"
         cd ..
@@ -319,200 +389,60 @@ CHROOT_EOF
 # ============================================================================
 
 phase3_kernel() {
-    log_section "FASE 3: MENGOMPILASI KERNEL FISHIX"
+    log_section "FASE 3: MENGIMPOR KERNEL FISHIX"
     
-    log_info "Mempersiapkan kernel Linux 6.18.20..."
-    cd "${LFS}/sources"
+    # Direktori hasil build Fishix (dari ../ setelah make import-kernel)
+    FISHIX_KERNEL_DIR="${ROOT_DIR}/kernel"
+    FISHIX_BUILD_DIR="${ROOT_DIR}/build"
     
-    if [ ! -d "linux-6.18.20" ]; then
-        tar -xf linux-6.18.20.tar.xz
+    log_info "Mengecek hasil build Fishix..."
+    
+    if [ ! -d "${FISHIX_KERNEL_DIR}" ]; then
+        log_error "Kernel Fishix tidak ditemukan di ${FISHIX_KERNEL_DIR}!"
+        log_error "Jalankan 'make import-kernel' terlebih dahulu!"
+        exit 1
     fi
     
-    cd linux-6.18.20
+    if [ ! -f "${FISHIX_KERNEL_DIR}/arch/x86/boot/bzImage" ]; then
+        log_error "Kernel image Fishix belum dibuild!"
+        log_error "Build kernel Fishix terlebih dahulu di ${FISHIX_KERNEL_DIR}"
+        exit 1
+    fi
     
-    log_info "Membersihkan build sebelumnya..."
-    make mrproper 2>/dev/null || true
+    log_info "Menyalin kernel Fishix ke sistem Saba OS..."
     
-    log_info "Membuat konfigurasi minimal untuk Saba OS..."
-    cat > .config << 'KERNEL_CONFIG'
-# Minimal kernel config for Saba OS
-CONFIG_LOCALVERSION="-Fishix-1.0.5"
-CONFIG_DEFAULT_HOSTNAME="saba-os"
-CONFIG_SYSVIPC=y
-CONFIG_POSIX_MQUEUE=y
-CONFIG_NO_HZ_IDLE=y
-CONFIG_HIGH_RES_TIMERS=y
-CONFIG_BPF_SYSCALL=y
-CONFIG_PREEMPT=y
-CONFIG_IKCONFIG=y
-CONFIG_IKCONFIG_PROC=y
-CONFIG_CGROUPS=y
-CONFIG_MEMCG=y
-CONFIG_BLK_CGROUP=y
-CONFIG_CGROUP_SCHED=y
-CONFIG_CFS_BANDWIDTH=y
-CONFIG_RT_GROUP_SCHED=y
-CONFIG_NAMESPACES=y
-CONFIG_USER_NS=y
-CONFIG_CHECKPOINT_RESTORE=y
-CONFIG_BLK_DEV_INITRD=y
-CONFIG_EXPERT=y
-CONFIG_KALLSYMS_ALL=y
-CONFIG_PC104=y
-CONFIG_SMP=y
-CONFIG_X86_INTEL_LPSS=y
-CONFIG_X86_AMD_PLATFORM_DEVICE=y
-CONFIG_IOSF_MBI=y
-CONFIG_SCHED_OMIT_FRAME_POINTER=y
-CONFIG_HYPERVISOR_GUEST=y
-CONFIG_PARAVIRT=y
-CONFIG_X86_CPU_RESCTRL=y
-CONFIG_X86_EXTENDED_PLATFORM=y
-CONFIG_EFI=y
-CONFIG_EFI_STUB=y
-CONFIG_EFI_MIXED=y
-CONFIG_HZ_1000=y
-CONFIG_PHYSICAL_ALIGN=0x1000000
-CONFIG_PM=y
-CONFIG_CPU_FREQ=y
-CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-CONFIG_X86_INTEL_PSTATE=y
-CONFIG_X86_AMD_PSTATE=y
-CONFIG_ACPI=y
-CONFIG_ACPI_BUTTON=y
-CONFIG_ACPI_FAN=y
-CONFIG_ACPI_DOCK=y
-CONFIG_ACPI_PROCESSOR=y
-CONFIG_ACPI_THERMAL=y
-CONFIG_CPU_IDLE=y
-CONFIG_PCI=y
-CONFIG_PCIEPORTBUS=y
-CONFIG_HOTPLUG_PCI=y
-CONFIG_BINFMT_ELF=y
-CONFIG_BINFMT_SCRIPT=y
-CONFIG_BINFMT_MISC=y
-CONFIG_IA32_EMULATION=y
-CONFIG_COMPAT_32BIT_TIME=y
-CONFIG_NET=y
-CONFIG_PACKET=y
-CONFIG_UNIX=y
-CONFIG_INET=y
-CONFIG_NETFILTER=y
-CONFIG_DEVTMPFS=y
-CONFIG_DEVTMPFS_MOUNT=y
-CONFIG_BLK_DEV_LOOP=y
-CONFIG_VIRTIO_BLK=y
-CONFIG_BLK_DEV_SD=y
-CONFIG_SATA_AHCI=y
-CONFIG_PATA_AMD=y
-CONFIG_PATA_INTEL=y
-CONFIG_MD=y
-CONFIG_BLK_DEV_DM=y
-CONFIG_DM_CRYPT=y
-CONFIG_NETDEVICES=y
-CONFIG_VIRTIO_NET=y
-CONFIG_E1000=y
-CONFIG_E1000E=y
-CONFIG_R8169=y
-CONFIG_INPUT=y
-CONFIG_INPUT_KEYBOARD=y
-CONFIG_KEYBOARD_ATKBD=y
-CONFIG_INPUT_MOUSE=y
-CONFIG_MOUSE_PS2=y
-CONFIG_SERIO=y
-CONFIG_TTY=y
-CONFIG_VT=y
-CONFIG_CONSOLE_TRANSLATIONS=y
-CONFIG_VT_CONSOLE=y
-CONFIG_HW_CONSOLE=y
-CONFIG_SERIAL_8250=y
-CONFIG_SERIAL_8250_CONSOLE=y
-CONFIG_VIRTIO_CONSOLE=y
-CONFIG_HW_RANDOM=y
-CONFIG_HW_RANDOM_VIRTIO=y
-CONFIG_THERMAL=y
-CONFIG_DRM=y
-CONFIG_DRM_VIRTIO_GPU=y
-CONFIG_DRM_BOCHS=y
-CONFIG_FB=y
-CONFIG_FRAMEBUFFER_CONSOLE=y
-CONFIG_SOUND=y
-CONFIG_SND=y
-CONFIG_SND_HDA_INTEL=y
-CONFIG_SND_HDA_CODEC_GENERIC=y
-CONFIG_SND_VIRTIO=y
-CONFIG_USB=y
-CONFIG_USB_XHCI_HCD=y
-CONFIG_USB_EHCI_HCD=y
-CONFIG_USB_UHCI_HCD=y
-CONFIG_USB_STORAGE=y
-CONFIG_USB_HID=y
-CONFIG_HID=y
-CONFIG_HID_GENERIC=y
-CONFIG_VIRTIO_PCI=y
-CONFIG_VIRTIO_BALLOON=y
-CONFIG_VIRTIO_INPUT=y
-CONFIG_VIRTIO_MMIO=y
-CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
-CONFIG_EXT4_FS=y
-CONFIG_EXT4_FS_POSIX_ACL=y
-CONFIG_BTRFS_FS=y
-CONFIG_XFS_FS=y
-CONFIG_FAT_FS=y
-CONFIG_VFAT_FS=y
-CONFIG_EXFAT_FS=y
-CONFIG_NTFS_FS=y
-CONFIG_NTFS3_FS=y
-CONFIG_PROC_FS=y
-CONFIG_PROC_KCORE=y
-CONFIG_PROC_SYSCTL=y
-CONFIG_SYSFS=y
-CONFIG_TMPFS=y
-CONFIG_TMPFS_POSIX_ACL=y
-CONFIG_HUGETLBFS=y
-CONFIG_CONFIGFS_FS=y
-CONFIG_SQUASHFS=y
-CONFIG_NLS=y
-CONFIG_NLS_DEFAULT="utf8"
-CONFIG_NLS_CODEPAGE_437=y
-CONFIG_NLS_ASCII=y
-CONFIG_NLS_UTF8=y
-CONFIG_SECURITY=y
-CONFIG_SECURITY_SELINUX=y
-CONFIG_SECURITY_APPARMOR=y
-CONFIG_SECURITY_YAMA=y
-CONFIG_CRYPTO=y
-CONFIG_CRYPTO_AES=y
-CONFIG_CRYPTO_XTS=y
-CONFIG_CRYPTO_SHA256=y
-CONFIG_CRYPTO_LIB_SHA256=y
-CONFIG_DEBUG_KERNEL=y
-CONFIG_DEBUG_FS=y
-CONFIG_MAGIC_SYSRQ=y
-CONFIG_DEBUG_STACK_USAGE=y
-# Single Core Scheduler Optimization
-CONFIG_SCHED_CORE=y
-CONFIG_NR_CPUS=8
-CONFIG_SCHED_SMT=y
-CONFIG_SCHED_MC=y
-CONFIG_SCHED_MC_PRIO=y
-KERNEL_CONFIG
+    # Copy kernel image
+    cp -v "${FISHIX_KERNEL_DIR}/arch/x86/boot/bzImage" \
+          "${LFS}/boot/vmlinuz-Fishix-1.0.5"
     
-    log_info "Menjalankan oldconfig..."
-    make olddefconfig 2>&1 | tee "${LOGS_DIR}/kernel_config.log"
+    # Copy System.map jika ada
+    if [ -f "${FISHIX_KERNEL_DIR}/System.map" ]; then
+        cp -v "${FISHIX_KERNEL_DIR}/System.map" \
+              "${LFS}/boot/System.map-Fishix-1.0.5"
+    fi
     
-    log_info "Mengompilasi kernel (ini akan memakan waktu)..."
-    make -j$(nproc) 2>&1 | tee "${LOGS_DIR}/kernel_build.log"
+    # Copy config jika ada
+    if [ -f "${FISHIX_KERNEL_DIR}/.config" ]; then
+        cp -v "${FISHIX_KERNEL_DIR}/.config" \
+              "${LFS}/boot/config-Fishix-1.0.5"
+    fi
     
-    log_info "Menginstal kernel modules..."
-    make modules_install INSTALL_MOD_PATH="$LFS" 2>&1 | tee "${LOGS_DIR}/kernel_modules.log"
+    # Copy modules jika sudah di-build
+    if [ -d "${FISHIX_KERNEL_DIR}/modules" ]; then
+        log_info "Menyalin kernel modules..."
+        cp -rv "${FISHIX_KERNEL_DIR}/modules"/* \
+               "${LFS}/lib/modules/" 2>/dev/null || true
+    fi
     
-    log_info "Menyalin kernel image..."
-    cp -v arch/x86/boot/bzImage "${LFS}/boot/vmlinuz-Fishix-1.0.5"
-    cp -v System.map "${LFS}/boot/System.map-6.18.20"
-    cp -v .config "${LFS}/boot/config-6.18.20"
+    # Copy firmware jika ada
+    if [ -d "${FISHIX_KERNEL_DIR}/firmware" ]; then
+        log_info "Menyalin firmware..."
+        cp -rv "${FISHIX_KERNEL_DIR}/firmware"/* \
+               "${LFS}/lib/firmware/" 2>/dev/null || true
+    fi
     
-    log_success "Kernel Fishix 1.0.5 selesai dibangun!"
+    log_success "Kernel Fishix berhasil diimpor ke Saba OS!"
+    log_info "Kernel: ${LFS}/boot/vmlinuz-Fishix-1.0.5"
 }
 
 # ============================================================================

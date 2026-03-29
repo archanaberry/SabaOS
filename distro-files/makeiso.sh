@@ -20,6 +20,7 @@ trap cleanup EXIT
 ISOROOT=$WORK_DIR/isoroot
 
 SYSROOT=$2
+KERNEL_DIR=${3:-kernel}
 mkdir -p $SYSROOT
 # cp -R distro-files/root $SYSROOT || true
 cp -R /usr/share/terminfo $SYSROOT/usr/share/ || true
@@ -38,7 +39,7 @@ ln -s ../usr/share/zoneinfo/UTC $SYSROOT/etc/localtime || true
 
 # Prepare the iso and boot directories.
 mkdir -pv $ISOROOT/boot
-cp kernel/build/fishix $ISOROOT/boot/
+cp "$KERNEL_DIR/build/fishix" $ISOROOT/boot/
 mv $WORK_DIR/initramfs.tar $ISOROOT/boot/
 cp distro-files/limine.conf $ISOROOT/boot/
 
@@ -56,3 +57,4 @@ xorriso -as mkisofs -b boot/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 \
 
 # Install limine.
 ./limine/limine bios-install $1
+./limine/limine efi-install $1
