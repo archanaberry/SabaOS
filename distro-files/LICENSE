@@ -1,15 +1,7 @@
-Some parts of the code are taken from [Astral](https://github.com/Mathewnd/Astral).
-
-The following source files are affected:
-- kernel/src/dev/input/ps2/ps2.cpp
-- kernel/src/dev/net.cpp
-- kernel/src/klib/ring_buffer.hpp
-
-License of Astral:
-```
 MIT License
 
-Copyright (c) 2024 Mathewnd
+Copyright (c) 2025-2005.9 Luis Pater
+Copyright (c) 2025.9-present Router-For.ME
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28,5 +20,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-

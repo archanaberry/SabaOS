@@ -37,7 +37,12 @@ declare -A SOURCE_URLS=(
     ["binutils-2.46.0.tar.xz"]="https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.xz"
     ["musl-1.2.6.tar.gz"]="https://musl.libc.org/releases/musl-1.2.6.tar.gz"
     ["gcc-14.2.0.tar.xz"]="https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"
+    ["busybox-1.37.0.tar.bz2"]="https://busybox.net/downloads/busybox-1.37.0.tar.bz2"
+    ["linux-6.8.tar.xz"]="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.8.tar.xz"
 )
+
+# Kernel headers path
+export KERNEL_HEADERS_INSTALL="${LFS}/usr/include"
 
 # ============================================================================
 # FUNGSI UTILITAS
@@ -105,6 +110,83 @@ log_section() {
     echo -e "${MAGENTA}========================================${NC}\n"
 }
 
+is_mounted() {
+    local target="$1"
+    if mountpoint -q "$target" 2>/dev/null; then
+        return 0
+    fi
+    grep -qs "[[:space:]]${target}[[:space:]]" /proc/mounts 2>/dev/null
+}
+
+mount_if_needed() {
+    local source="$1"
+    local target="$2"
+    local fstype="$3"
+    local opts="${4:-}"
+
+    if is_mounted "$target"; then
+        log_warning "$target already mounted, skipping..."
+        return 0
+    fi
+
+    if [ -n "$opts" ]; then
+        sudo mount -v -t "$fstype" -o "$opts" "$source" "$target"
+    else
+        sudo mount -v -t "$fstype" "$source" "$target"
+    fi
+}
+
+# ============================================================================
+# INSTALASI LINUX KERNEL HEADERS
+# ============================================================================
+
+install_kernel_headers() {
+    log_info "Menginstal Linux kernel headers untuk BusyBox compilation..."
+    
+    if [ ! -d "${LFS}/sources/linux-6.8" ]; then
+        log_info "Mengekstrak Linux kernel headers..."
+        cd "${LFS}/sources"
+        check_archive linux-6.8.tar.xz
+        tar -xf linux-6.8.tar.xz || {
+            log_error "Gagal mengekstrak linux-6.8.tar.xz"
+            return 1
+        }
+    fi
+    
+    cd "${LFS}/sources/linux-6.8"
+    
+    # Clean and prepare header installation directory
+    log_info "Menyiapkan direktori header..."
+    mkdir -pv "${KERNEL_HEADERS_INSTALL}"
+    rm -rf "${KERNEL_HEADERS_INSTALL}"/{linux,uapi,asm,asm-generic} 2>/dev/null || true
+    
+    # Install headers comprehensively
+    log_info "Menyalin kernel headers ke ${KERNEL_HEADERS_INSTALL}..."
+    
+    # Copy all generic headers
+    cp -r include/linux "${KERNEL_HEADERS_INSTALL}/" || true
+    cp -r include/uapi "${KERNEL_HEADERS_INSTALL}/" || true
+    cp -r include/asm-generic "${KERNEL_HEADERS_INSTALL}/" || true
+    
+    # Copy x86-specific headers
+    mkdir -pv "${KERNEL_HEADERS_INSTALL}/asm"
+    cp -r arch/x86/include/asm/* "${KERNEL_HEADERS_INSTALL}/asm/" 2>/dev/null || true
+    
+    # Copy asm/types.h from ARM (x86 doesn't have its own, but ARM's works for generic arch)
+    if [ -f "arch/arm/include/uapi/asm/types.h" ]; then
+        cp arch/arm/include/uapi/asm/types.h "${KERNEL_HEADERS_INSTALL}/asm/" 2>/dev/null || true
+    fi
+    
+    # Create symlinks for headers that are in asm but referenced from linux
+    cd "${KERNEL_HEADERS_INSTALL}/linux"
+    ln -sf ../asm/posix_types.h posix_types.h 2>/dev/null || true
+    ln -sf ../asm/posix_types_32.h posix_types_32.h 2>/dev/null || true
+    ln -sf ../asm/posix_types_64.h posix_types_64.h 2>/dev/null || true
+    ln -sf ../asm/posix_types_x32.h posix_types_x32.h 2>/dev/null || true
+    
+    log_success "Linux kernel headers berhasil diinstal!"
+}
+
 # ============================================================================
 # FASE 0: PERSIAPAN
 # ============================================================================
@@ -146,6 +228,9 @@ phase0_preparation() {
     sudo chown -R $USER:$USER "${LFS}/lib64" 2>/dev/null || true
     sudo chown -R $USER:$USER "${LFS}/usr" 2>/dev/null || true
     sudo chown -R $USER:$USER "${LFS}/var" 2>/dev/null || true
+
+    # Install Linux kernel headers for BusyBox compilation
+    install_kernel_headers
 
     log_success "Persiapan selesai!"
 }
@@ -197,35 +282,21 @@ phase1_toolchain() {
         log_success "Binutils cross selesai!"
     fi
     
-    # 2. musl libc headers
-    log_info "[2/4] Menginstal musl libc headers..."
-    if [ ! -f "${LOGS_DIR}/musl_headers.done" ]; then
-        if [ ! -d musl-1.2.6 ]; then
-            check_archive musl-1.2.6.tar.gz
-            tar -xf "${SOURCES_DIR}/musl-1.2.6.tar.gz"
-        else
-            log_warning "musl source already extracted"
-        fi
-        cd musl-1.2.6
-        ./configure --prefix="${LFS}/tools" --target="$SABA_TGT" 2>&1 | tee "${LOGS_DIR}/musl_headers_configure.log"
-        make install-headers 2>&1 | tee "${LOGS_DIR}/musl_headers_install.log"
-        touch "${LOGS_DIR}/musl_headers.done"
-        cd ..
-        log_success "musl headers selesai!"
-    else
-        log_warning "musl headers sudah diinstal, melewati..."
-    fi
-    
-    # 3. GCC - Cross Compiler (Static)
-    log_info "[3/4] Membangun GCC (cross, static)..."
+    # 2. GCC - Cross Compiler (Static)
+    log_info "[2/4] Membangun GCC (cross, static)..."
     GCC_BIN="${LFS}/tools/bin/${SABA_TGT}-gcc"
+    if [ -f "${LOGS_DIR}/gcc_cross.done" ]; then
+        if [ ! -x "${GCC_BIN}" ]; then
+            log_warning "GCC marker ada tetapi ${GCC_BIN} tidak ditemukan. Membangun ulang GCC..."
+            rm -f "${LOGS_DIR}/gcc_cross.done"
+        elif ! printf '#include <byteswap.h>\n' | "${GCC_BIN}" -E -xc - -o /dev/null >/dev/null 2>&1; then
+            log_warning "GCC marker ada tetapi compiler tidak dapat menemukan musl headers. Membangun ulang GCC..."
+            rm -f "${LOGS_DIR}/gcc_cross.done"
+        fi
+    fi
     if [ -f "${LOGS_DIR}/gcc_cross.done" ] && [ -x "${GCC_BIN}" ]; then
         log_warning "GCC cross sudah dibangun, melewati..."
     else
-        if [ -f "${LOGS_DIR}/gcc_cross.done" ] && [ ! -x "${GCC_BIN}" ]; then
-            log_warning "GCC marker ada tetapi ${GCC_BIN} tidak ditemukan. Membangun ulang GCC..."
-            rm -f "${LOGS_DIR}/gcc_cross.done"
-        fi
         if [ ! -d gcc-14.2.0 ]; then
             check_archive gcc-14.2.0.tar.xz
             tar -xf "${SOURCES_DIR}/gcc-14.2.0.tar.xz"
@@ -243,8 +314,8 @@ phase1_toolchain() {
             --with-sysroot="$LFS" \
             --with-newlib \
             --without-headers \
-            --with-local-prefix="${LFS}/tools" \
-            --with-native-system-header-dir="${LFS}/tools/include" \
+            --with-local-prefix="/tools" \
+            --with-native-system-header-dir="/tools/include" \
             --disable-nls \
             --disable-shared \
             --disable-multilib \
@@ -267,8 +338,36 @@ phase1_toolchain() {
         log_success "GCC cross selesai!"
     fi
     
+    # 3. musl libc headers
+    log_info "[3/4] Menginstal musl libc headers..."
+    if [ -f "${LOGS_DIR}/musl_headers.done" ] && [ ! -f "${LFS}/tools/include/byteswap.h" ]; then
+        log_warning "Stale musl headers marker found but /tools/include/byteswap.h missing. Rebuilding musl headers..."
+        rm -f "${LOGS_DIR}/musl_headers.done"
+        rm -rf musl-1.2.6
+    fi
+    if [ ! -f "${LOGS_DIR}/musl_headers.done" ]; then
+        if [ ! -d musl-1.2.6 ]; then
+            check_archive musl-1.2.6.tar.gz
+            tar -xf "${SOURCES_DIR}/musl-1.2.6.tar.gz"
+        else
+            log_warning "musl source already extracted"
+        fi
+        cd musl-1.2.6
+        ./configure --prefix="${LFS}/tools" --target="$SABA_TGT" 2>&1 | tee "${LOGS_DIR}/musl_headers_configure.log"
+        make install-headers 2>&1 | tee "${LOGS_DIR}/musl_headers_install.log"
+        touch "${LOGS_DIR}/musl_headers.done"
+        cd ..
+        log_success "musl headers selesai!"
+    else
+        log_warning "musl headers sudah diinstal, melewati..."
+    fi
+    
     # 4. musl libc (Cross)
     log_info "[4/4] Membangun musl libc (cross)..."
+    if [ -f "${LOGS_DIR}/musl_cross.done" ] && [ ! -f "${LFS}/tools/lib/libc.a" ]; then
+        log_warning "Stale musl libc marker found but /tools/lib/libc.a missing. Rebuilding musl libc..."
+        rm -f "${LOGS_DIR}/musl_cross.done"
+    fi
     if [ ! -f "${LOGS_DIR}/musl_cross.done" ]; then
         cd musl-1.2.6
         CC="${SABA_TGT}-gcc" \
@@ -287,6 +386,60 @@ phase1_toolchain() {
         log_success "musl libc cross selesai!"
     else
         log_warning "musl libc cross sudah dibangun, melewati..."
+    fi
+
+    # 5. Prepare BusyBox for chroot /tools/bin/env and /tools/bin/sh
+    log_info "[5/5] Menyiapkan BusyBox statis untuk chroot..."
+    # Check if BusyBox needs extraction (check for Makefile to ensure complete extraction)
+    if [ ! -f busybox-1.37.0/Makefile ]; then
+        log_info "Extracting BusyBox source..."
+        rm -rf busybox-1.37.0 2>/dev/null || true
+        check_archive busybox-1.37.0.tar.bz2
+        tar -xf "${SOURCES_DIR}/busybox-1.37.0.tar.bz2"
+    else
+        log_warning "BusyBox source already extracted"
+    fi
+
+    if [ -f "${LOGS_DIR}/busybox_chroot.done" ]; then
+        cd busybox-1.37.0
+        if [ ! -x "${LFS}/tools/bin/env" ] || [ ! -x "${LFS}/tools/bin/sh" ] || \
+           grep -qE '^CONFIG_LOADFONT=y|^CONFIG_DESKTOP=y|^CONFIG_CONSOLE_TOOLS=y' .config 2>/dev/null; then
+            log_warning "Stale BusyBox helper detected; rebuilding BusyBox helper..."
+            rm -f "${LOGS_DIR}/busybox_chroot.done"
+        fi
+        cd ..
+    fi
+
+    if [ ! -f "${LOGS_DIR}/busybox_chroot.done" ]; then
+        cd busybox-1.37.0
+        make distclean || true
+        make defconfig
+        sed -i \
+            -e 's/^CONFIG_STATIC=y/CONFIG_STATIC=y/' \
+            -e 's/^CONFIG_OPENVT=y/# CONFIG_OPENVT is not set/' \
+            -e 's/^CONFIG_CHVT=y/# CONFIG_CHVT is not set/' \
+            -e 's/^CONFIG_DEALLOCVT=y/# CONFIG_DEALLOCVT is not set/' \
+            -e 's/^CONFIG_FGCONSOLE=y/# CONFIG_FGCONSOLE is not set/' \
+            -e 's/^CONFIG_LOADFONT=y/# CONFIG_LOADFONT is not set/' \
+            -e 's/^CONFIG_SETFONT=y/# CONFIG_SETFONT is not set/' \
+            -e 's/^CONFIG_KBD_MODE=y/# CONFIG_KBD_MODE is not set/' \
+            -e 's/^CONFIG_SHOWKEY=y/# CONFIG_SHOWKEY is not set/' \
+            -e 's/^CONFIG_DUMPKMAP=y/# CONFIG_DUMPKMAP is not set/' \
+            -e 's/^CONFIG_SETLOGCONS=y/# CONFIG_SETLOGCONS is not set/' \
+            -e 's/^CONFIG_HDPARM=y/# CONFIG_HDPARM is not set/' \
+            -e 's/^CONFIG_FEATURE_LOADFONT_PSF2=y/# CONFIG_FEATURE_LOADFONT_PSF2 is not set/' \
+            -e 's/^CONFIG_FEATURE_LOADFONT_RAW=y/# CONFIG_FEATURE_LOADFONT_RAW is not set/' \
+            .config
+        make CROSS_COMPILE="${SABA_TGT}-" CONFIG_PREFIX="${LFS}/tools" CFLAGS="-I${KERNEL_HEADERS_INSTALL}" install
+        cd ..
+
+        ln -sfv busybox "${LFS}/tools/bin/sh"
+        ln -sfv busybox "${LFS}/tools/bin/env"
+        chmod +x "${LFS}/tools/bin/sh" "${LFS}/tools/bin/env"
+        touch "${LOGS_DIR}/busybox_chroot.done"
+        log_success "BusyBox statis untuk chroot selesai!"
+    else
+        log_warning "BusyBox chroot helper sudah ada, melewati..."
     fi
     
     log_success "Cross-toolchain selesai dibangun!"
@@ -307,11 +460,11 @@ phase2_chroot() {
     sudo mkdir -pv "${LFS}/tmp"
     
     log_info "Mount virtual filesystems..."
-    sudo mount -v --bind /dev "${LFS}/dev"
-    sudo mount -vt proc proc "${LFS}/proc"
-    sudo mount -vt sysfs sysfs "${LFS}/sys"
-    sudo mount -vt tmpfs tmpfs "${LFS}/run"
-    sudo mount -vt tmpfs tmpfs "${LFS}/tmp"
+    mount_if_needed /dev "${LFS}/dev" none bind
+    mount_if_needed proc "${LFS}/proc" proc
+    mount_if_needed sysfs "${LFS}/sys" sysfs
+    mount_if_needed tmpfs "${LFS}/run" tmpfs
+    mount_if_needed tmpfs "${LFS}/tmp" tmpfs
     
     log_info "Membuat skrip chroot..."
     cat > "${BUILD_DIR}/chroot_build.sh" << 'CHROOT_EOF'
@@ -343,6 +496,30 @@ mkdir -pv /var/lib/{color,misc,locate}
 ln -sfv /run /var/run
 ln -sfv /run/lock /var/lock
 
+# Copy Linux kernel headers into chroot environment
+echo -e "${BLUE}[CHROOT]${NC} Menyalin Linux kernel headers..."
+if [ -d /sources/linux-6.8 ]; then
+    mkdir -pv /usr/include
+    rm -rf /usr/include/{linux,uapi,asm,asm-generic} 2>/dev/null || true
+    # Copy all generic headers
+    cp -r /sources/linux-6.8/include/linux /usr/include/ || true
+    cp -r /sources/linux-6.8/include/uapi /usr/include/ || true
+    cp -r /sources/linux-6.8/include/asm-generic /usr/include/ || true
+    # Copy x86-specific headers
+    mkdir -pv /usr/include/asm
+    cp -r /sources/linux-6.8/arch/x86/include/asm/* /usr/include/asm/ 2>/dev/null || true
+    # Copy asm/types.h from ARM (x86 doesn't have its own types.h)
+    if [ -f /sources/linux-6.8/arch/arm/include/uapi/asm/types.h ]; then
+        cp /sources/linux-6.8/arch/arm/include/uapi/asm/types.h /usr/include/asm/ 2>/dev/null || true
+    fi
+    # Create symlinks for headers that are in asm but referenced from linux
+    cd /usr/include/linux
+    ln -sf ../asm/posix_types.h posix_types.h 2>/dev/null || true
+    ln -sf ../asm/posix_types_32.h posix_types_32.h 2>/dev/null || true
+    ln -sf ../asm/posix_types_64.h posix_types_64.h 2>/dev/null || true
+    ln -sf ../asm/posix_types_x32.h posix_types_x32.h 2>/dev/null || true
+fi
+
 # Install coreutils
 echo -e "${BLUE}[CHROOT]${NC} Menginstal Coreutils..."
 cd /sources
@@ -363,11 +540,31 @@ echo -e "${GREEN}[CHROOT]${NC} Coreutils selesai!"
 # Install BusyBox untuk utilitas tambahan
 echo -e "${BLUE}[CHROOT]${NC} Menginstal BusyBox..."
 cd /sources
-tar -xf busybox-1.37.0.tar.bz2
+# Check if we need to extract (look for Makefile)
+if [ ! -f busybox-1.37.0/Makefile ]; then
+    rm -rf busybox-1.37.0 2>/dev/null || true
+    tar -xf busybox-1.37.0.tar.bz2
+fi
 cd busybox-1.37.0
+make distclean || true
 make defconfig
-make CONFIG_PREFIX=/usr install
-echo -e "${GREEN}[CHROOT]${NC} BusyBox selesai!"
+        # Disable console tools that need kernel headers
+        sed -i \
+            -e 's/^CONFIG_OPENVT=y/# CONFIG_OPENVT is not set/' \
+            -e 's/^CONFIG_CHVT=y/# CONFIG_CHVT is not set/' \
+            -e 's/^CONFIG_DEALLOCVT=y/# CONFIG_DEALLOCVT is not set/' \
+            -e 's/^CONFIG_FGCONSOLE=y/# CONFIG_FGCONSOLE is not set/' \
+            -e 's/^CONFIG_LOADFONT=y/# CONFIG_LOADFONT is not set/' \
+            -e 's/^CONFIG_SETFONT=y/# CONFIG_SETFONT is not set/' \
+            -e 's/^CONFIG_KBD_MODE=y/# CONFIG_KBD_MODE is not set/' \
+            -e 's/^CONFIG_SHOWKEY=y/# CONFIG_SHOWKEY is not set/' \
+            -e 's/^CONFIG_DUMPKMAP=y/# CONFIG_DUMPKMAP is not set/' \
+            -e 's/^CONFIG_SETLOGCONS=y/# CONFIG_SETLOGCONS is not set/' \
+            -e 's/^CONFIG_HDPARM=y/# CONFIG_HDPARM is not set/' \
+            -e 's/^CONFIG_FEATURE_LOADFONT_PSF2=y/# CONFIG_FEATURE_LOADFONT_PSF2 is not set/' \
+            -e 's/^CONFIG_FEATURE_LOADFONT_RAW=y/# CONFIG_FEATURE_LOADFONT_RAW is not set/' \
+            .config
+        make CFLAGS="-I/usr/include" CONFIG_PREFIX=/usr install
 
 # Install Fish Shell
 echo -e "${BLUE}[CHROOT]${NC} Menginstal Fish Shell..."
@@ -403,9 +600,9 @@ CHROOT_EOF
         HOME=/root \
         TERM="$TERM" \
         PS1='(saba-chroot) \u:\w\$ ' \
-        PATH=/bin:/usr/bin:/sbin:/usr/sbin:/tools/bin \
+        PATH=/tools/bin:/bin:/usr/bin:/sbin:/usr/sbin \
         SABA_TGT="$SABA_TGT" \
-        /bin/bash /build/chroot_build.sh 2>&1 | tee "${LOGS_DIR}/chroot_build.log"
+        /tools/bin/sh /build/chroot_build.sh 2>&1 | tee "${LOGS_DIR}/chroot_build.log"
     
     log_success "Chroot build selesai!"
 }
