@@ -1437,3 +1437,49 @@ applets/usage.c:52:17: warning: ignoring return value of ‘write’ declared wi
   CC      coreutils/od.o
   CC      editors/sed.o
   CC      coreutils/paste.o
+  CC      coreutils/printenv.o
+  CC      editors/vi.o
+  CC      coreutils/printf.o
+  CC      coreutils/pwd.o
+  CC      coreutils/readlink.o
+  CC      coreutils/realpath.o
+  CC      coreutils/rm.o
+  CC      coreutils/rmdir.o
+  CC      coreutils/seq.o
+  CC      coreutils/shred.o
+  CC      coreutils/shuf.o
+  CC      coreutils/sleep.o
+  CC      coreutils/sort.o
+  AR      editors/lib.a
+  LD      findutils/built-in.o
+  CC      findutils/find.o
+  CC      coreutils/split.o
+  CC      coreutils/stat.o
+  CC      findutils/grep.o
+  CC      coreutils/stty.o
+  CC      findutils/xargs.o
+  CC      coreutils/sum.o
+  CC      coreutils/sync.o
+  CC      coreutils/tac.o
+  AR      findutils/lib.a
+  LD      init/built-in.o
+  CC      init/bootchartd.o
+  CC      coreutils/tail.o
+  CC      init/halt.o
+  CC      init/init.o
+init/init.c:134:11: fatal error: linux/vt.h: No such file or directory
+  134 | # include <linux/vt.h>
+      |           ^~~~~~~~~~~~
+compilation terminated.
+make[1]: *** [scripts/Makefile.build:198: init/init.o] Error 1
+make: *** [Makefile:744: init] Error 2
+make: *** Waiting for unfinished jobs....
+  CC      coreutils/tee.o
+  CC      coreutils/test.o
+  CC      coreutils/test_ptr_hack.o
+  CC      coreutils/timeout.o
+  CC      coreutils/touch.o
+  CC      coreutils/tr.o
+  CC      coreutils/true.o
+  CC      coreutils/truncate.o
+  CC      coreutils/tsort.o
