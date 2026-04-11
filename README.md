@@ -41,7 +41,11 @@ External systems may be used temporarily for bootstrapping during development on
 | Kernel | Fishix |
 | OS Type | Independent LINUX-like |
 | Display Protocol | Wayland |
+| System Init | DInit |
+| LibC | Musl |
 | Bootloader | Limine |
+| Shell | Fish |
+| Terminal | Kitty |
 | Architecture | x86_64 |
 | Language | C++ / ASM |
 | Graphics | DRM + Framebuffer |
@@ -53,12 +57,10 @@ External systems may be used temporarily for bootstrapping during development on
 ## Essential coreutils
 1. fish shell
 2. kitty
-3. dinit
 4. weston
 5. wayland
 6. sway
 7. yad
-8. musl
 
 ---
 
@@ -93,7 +95,7 @@ SabaOS/
 - DRM graphics subsystem
 - Virtual filesystem (VFS, tmpfs, procfs)
 - ELF userspace execution
-- USB & PS/2 input devices
+- USB & PS/2 input devices (Mouse and Keyboard)
 - virtio networking
 - Runs on real hardware and QEMU
 
@@ -150,7 +152,6 @@ sabapm — native Saba OS package manager
 ## 🤝 Contributing
 
 Saba OS is an experimental research project.
-
 Contributions, testing, and architectural discussions are welcome.
 
 ---
@@ -158,7 +159,6 @@ Contributions, testing, and architectural discussions are welcome.
 ## 📜 License
 
 MIT License — see [LICENSE](LICENSE)
-
 Attributions listed in [NOTICE.md](NOTICE.md).
 
 ---
@@ -167,5 +167,7 @@ Attributions listed in [NOTICE.md](NOTICE.md).
 
 **Saba OS — Sameko Saba 🌊**
 Independent system powered by Fishix
+>> SabaOS created by Archana Berry (Berry Lab Foundation)
+>> 2023-2026
 
 </div>
