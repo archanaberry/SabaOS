@@ -167,7 +167,7 @@ Attributions listed in [NOTICE.md](NOTICE.md).
 
 **Saba OS — Sameko Saba 🌊**
 Independent system powered by Fishix
->> SabaOS created by Archana Berry (Berry Lab Foundation)  
- 2023-2026
+> SabaOS created by Archana Berry (Berry Lab Foundation)  
+> 2023-2026
 
 </div>
