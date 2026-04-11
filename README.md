@@ -31,6 +31,8 @@ The system is developed as its own ecosystem, including:
 External systems may be used temporarily for bootstrapping during development only.
 
 ---
+![](docs/sameko.png)
+---
 
 ## 🧱 System Overview
 
