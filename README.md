@@ -26,7 +26,7 @@ The system is developed as its own ecosystem, including:
 - custom system layout
 - independent userspace direction
 - future native package manager (**sabapm**)
-- experimental UNIX-like environment
+- experimental LINUX-like environment
 
 External systems may be used temporarily for bootstrapping during development only.
 
@@ -37,7 +37,7 @@ External systems may be used temporarily for bootstrapping during development on
 | Component | Technology |
 |-----------|------------|
 | Kernel | Fishix |
-| OS Type | Independent UNIX-like |
+| OS Type | Independent LINUX-like |
 | Display Protocol | Wayland |
 | Bootloader | Limine |
 | Architecture | x86_64 |
