@@ -51,7 +51,7 @@ External systems may be used temporarily for bootstrapping during development on
 ## Essential coreutils
 1. fish shell
 2. kitty
-3. runit
+3. dinit
 4. weston
 5. wayland
 6. sway
